@@ -1,4 +1,5 @@
 import path from 'node:path'
+import os from 'node:os'
 import { readFile } from 'node:fs/promises'
 
 import type { NotifySound, PluginConfig } from './types.js'
@@ -111,29 +112,82 @@ async function readConfigFile(filePath: string): Promise<unknown> {
   return JSON.parse(content)
 }
 
+function resolveConfigDir(): string {
+  const xdg = process.env.XDG_CONFIG_HOME?.trim()
+  if (xdg) return path.join(path.resolve(xdg), 'opencode')
+  return path.join(os.homedir(), '.config', 'opencode')
+}
+
+function resolveOverridePath(): string | undefined {
+  const value = process.env.OPENCODE_NOTIFY_NATIVE_CONFIG?.trim()
+  if (!value) return undefined
+  return path.resolve(value)
+}
+
+function dedupePaths(paths: string[]): string[] {
+  const seen = new Set<string>()
+  const output: string[] = []
+  for (const filePath of paths) {
+    const resolved = path.resolve(filePath)
+    const key =
+      process.platform === 'win32' ? resolved.toLowerCase() : resolved
+    if (seen.has(key)) continue
+    seen.add(key)
+    output.push(resolved)
+  }
+  return output
+}
+
+async function mergeIfExists(
+  base: PluginConfig,
+  filePath: string,
+): Promise<PluginConfig> {
+  try {
+    const parsed = await readConfigFile(filePath)
+    return mergeConfig(base, parsed)
+  } catch {
+    return base
+  }
+}
+
 export async function loadPluginConfig(
   worktree: string,
   directory: string,
 ): Promise<PluginConfig> {
-  const candidates = [
-    path.join(worktree, '.opencode', 'opencode-native-notify.config.json'),
-    path.join(worktree, 'opencode-native-notify.config.json'),
-    path.join(directory, 'opencode-native-notify.config.json'),
-    path.join(worktree, '.opencode', 'opencode-notify.config.json'),
-    path.join(worktree, 'opencode-notify.config.json'),
-    path.join(directory, 'opencode-notify.config.json'),
-  ]
+  const configDir = resolveConfigDir()
+  const override = resolveOverridePath()
 
-  for (const candidate of candidates) {
-    try {
-      const parsed = await readConfigFile(candidate)
-      return mergeConfig({ ...DEFAULT_CONFIG }, parsed)
-    } catch {
-      // Missing or invalid config files are ignored by default.
-    }
+  const layers = dedupePaths(
+    [
+      path.join(configDir, 'notify-native.config.json'),
+      path.join(configDir, 'opencode-native-notify.config.json'),
+      path.join(configDir, 'opencode-notify.config.json'),
+
+      path.join(worktree, 'notify-native.config.json'),
+      path.join(worktree, 'opencode-native-notify.config.json'),
+      path.join(worktree, 'opencode-notify.config.json'),
+
+      path.join(directory, 'notify-native.config.json'),
+      path.join(directory, 'opencode-native-notify.config.json'),
+      path.join(directory, 'opencode-notify.config.json'),
+
+      path.join(worktree, '.opencode', 'notify-native.config.json'),
+      path.join(worktree, '.opencode', 'opencode-native-notify.config.json'),
+      path.join(worktree, '.opencode', 'opencode-notify.config.json'),
+
+      path.join(directory, '.opencode', 'notify-native.config.json'),
+      path.join(directory, '.opencode', 'opencode-native-notify.config.json'),
+      path.join(directory, '.opencode', 'opencode-notify.config.json'),
+
+      ...(override ? [override] : []),
+    ],
+  )
+
+  let config = { ...DEFAULT_CONFIG }
+  for (const layer of layers) {
+    config = await mergeIfExists(config, layer)
   }
-
-  return { ...DEFAULT_CONFIG }
+  return config
 }
 
 export function defaultPluginConfig(): PluginConfig {

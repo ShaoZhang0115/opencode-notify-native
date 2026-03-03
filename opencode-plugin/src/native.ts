@@ -118,6 +118,60 @@ function macSoundName(event: NotifyEventType, sound: boolean | string): string {
   return ''
 }
 
+function shellEscapeForDoubleQuotes(input: string): string {
+  return input
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$')
+    .replace(/`/g, '\\`')
+}
+
+function macActivateTargets(): string[] {
+  const term = String(process.env.TERM_PROGRAM || '').toLowerCase()
+  const preferred: string[] = []
+
+  if (term.includes('vscode')) preferred.push('Visual Studio Code')
+  else if (term.includes('iterm')) preferred.push('iTerm2')
+  else if (term.includes('apple_terminal')) preferred.push('Terminal')
+  else if (term.includes('wezterm')) preferred.push('WezTerm')
+  else if (term.includes('warp')) preferred.push('Warp')
+  else if (term.includes('ghostty')) preferred.push('Ghostty')
+
+  const fallbacks = [
+    'iTerm2',
+    'Terminal',
+    'WezTerm',
+    'Warp',
+    'Visual Studio Code',
+    'Cursor',
+    'Ghostty',
+  ]
+
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const name of [...preferred, ...fallbacks]) {
+    if (seen.has(name)) continue
+    seen.add(name)
+    result.push(name)
+  }
+  return result
+}
+
+function macNoopOrActivateCommand(): string {
+  const targets = macActivateTargets()
+  const appleList = targets.map((t) => `"${t.replace(/"/g, '\\"')}"`).join(', ')
+  const script =
+    `try; ` +
+    `set targets to {${appleList}}; ` +
+    `repeat with t in targets; ` +
+    `try; if application t is running then tell application t to activate; exit repeat; end if; end try; ` +
+    `end repeat; ` +
+    `end try`
+
+  // Run via /bin/sh on click (terminal-notifier executes command strings).
+  return `/usr/bin/osascript -e "${shellEscapeForDoubleQuotes(script)}"`
+}
+
 async function notifyWindows(
   title: string,
   body: string,
@@ -128,14 +182,8 @@ async function notifyWindows(
   // Tag length limits vary across Windows versions; 16 chars is the safest.
   const toastTag = hashHex(group, 16)
   // Use background activation to avoid launching a new app window when the user clicks.
-  const xml = `<toast activationType="background" launch="noop"><visual><binding template="ToastGeneric"><text>${escapeXml(title)}</text><text>${escapeXml(body)}</text></binding></visual>${windowsAudioNode(sound)}</toast>`
+  const xml = `<toast activationType="background"><visual><binding template="ToastGeneric"><text>${escapeXml(title)}</text><text>${escapeXml(body)}</text></binding></visual>${windowsAudioNode(sound)}</toast>`
   const encoded = Buffer.from(xml, 'utf8').toString('base64')
-  const ids = [
-    'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App',
-    'Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe!App',
-    'WindowsTerminal',
-  ]
-  const idList = `@(${ids.map((id) => `'${id}'`).join(',')})`
 
   const script = [
     "$bytes = [Convert]::FromBase64String('" + encoded + "')",
@@ -147,10 +195,8 @@ async function notifyWindows(
     '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)',
     `$toast.Tag = '${toastTag}'`,
     `$toast.Group = '${toastGroup}'`,
-    `$ids = ${idList}`,
     '$shown = $false',
     'try { [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier().Show($toast); $shown = $true } catch {}',
-    'foreach ($id in $ids) { if ($shown) { break }; try { [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($id).Show($toast); $shown = $true } catch {} }',
     "if (-not $shown) { throw 'ToastNotificationManager failed to show toast' }",
   ].join('; ')
 
@@ -178,6 +224,8 @@ async function notifyMac(
 
   const notifierArgs = ['-title', title, '-message', body, '-group', group]
   if (sound !== false) notifierArgs.push('-sound', mapped || 'default')
+  // Best-effort focus of an existing terminal/editor instance. If nothing is running, no-op.
+  notifierArgs.push('-execute', macNoopOrActivateCommand())
 
   const ok = await run('terminal-notifier', notifierArgs, { timeoutMs: 8000 })
   if (ok) return

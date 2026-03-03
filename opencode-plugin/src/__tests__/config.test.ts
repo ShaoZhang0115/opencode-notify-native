@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 
 import { loadPluginConfig } from '../config.js'
 
-test('loadPluginConfig uses first matching config file', async () => {
+test('loadPluginConfig applies project .opencode override', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'opencode-notify-native-'))
   const opencodeDir = path.join(root, '.opencode')
   await mkdir(opencodeDir, { recursive: true })
@@ -28,17 +28,74 @@ test('loadPluginConfig uses first matching config file', async () => {
   assert.equal(config.events.attention, false)
 })
 
-test('loadPluginConfig falls back to directory config', async () => {
+test('loadPluginConfig supports layered global + project config', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'opencode-notify-native-'))
-  const dir = path.join(root, 'sub')
-  await mkdir(dir, { recursive: true })
+  const xdgHome = path.join(root, 'xdg')
+  const globalDir = path.join(xdgHome, 'opencode')
+  await mkdir(globalDir, { recursive: true })
 
-  await writeFile(
-    path.join(dir, 'opencode-native-notify.config.json'),
-    JSON.stringify({ showSessionId: true }),
-    'utf8',
-  )
+  const prevXdg = process.env.XDG_CONFIG_HOME
+  const prevOverride = process.env.OPENCODE_NOTIFY_NATIVE_CONFIG
+  process.env.XDG_CONFIG_HOME = xdgHome
+  delete process.env.OPENCODE_NOTIFY_NATIVE_CONFIG
 
-  const config = await loadPluginConfig(root, dir)
-  assert.equal(config.showSessionId, true)
+  try {
+    await writeFile(
+      path.join(globalDir, 'notify-native.config.json'),
+      JSON.stringify({
+        showDirectory: false,
+        events: {
+          complete: false,
+        },
+      }),
+      'utf8',
+    )
+
+    await writeFile(
+      path.join(root, 'notify-native.config.json'),
+      JSON.stringify({
+        showSessionId: true,
+      }),
+      'utf8',
+    )
+
+    const config = await loadPluginConfig(root, root)
+    assert.equal(config.showDirectory, false)
+    assert.equal(config.events.complete, false)
+    assert.equal(config.showSessionId, true)
+  } finally {
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prevXdg
+
+    if (prevOverride === undefined) delete process.env.OPENCODE_NOTIFY_NATIVE_CONFIG
+    else process.env.OPENCODE_NOTIFY_NATIVE_CONFIG = prevOverride
+  }
+})
+
+test('loadPluginConfig allows env override file path', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'opencode-notify-native-'))
+  const overridePath = path.join(root, 'override.json')
+
+  const prev = process.env.OPENCODE_NOTIFY_NATIVE_CONFIG
+  process.env.OPENCODE_NOTIFY_NATIVE_CONFIG = overridePath
+
+  try {
+    await writeFile(
+      path.join(root, 'notify-native.config.json'),
+      JSON.stringify({ showSessionId: false }),
+      'utf8',
+    )
+
+    await writeFile(
+      overridePath,
+      JSON.stringify({ showSessionId: true }),
+      'utf8',
+    )
+
+    const config = await loadPluginConfig(root, root)
+    assert.equal(config.showSessionId, true)
+  } finally {
+    if (prev === undefined) delete process.env.OPENCODE_NOTIFY_NATIVE_CONFIG
+    else process.env.OPENCODE_NOTIFY_NATIVE_CONFIG = prev
+  }
 })

@@ -35,17 +35,40 @@ Add to `opencode.json`:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["file:///ABSOLUTE/PATH/TO/opencode-plugin/dist/index.js"]
+  "plugin": [
+    "file:///ABSOLUTE/PATH/TO/plugins/opencode-notify-native/opencode-plugin/dist/index.js"
+  ]
 }
 ```
 
-Use your own absolute path. Do not copy machine-specific paths from examples.
+Use your own absolute path, but always point to this entry file:
+
+- `.../opencode-plugin/dist/index.js`
 
 ## Optional config
 
-Create `.opencode/opencode-native-notify.config.json`:
+Recommended global config:
 
-Config resolution: the first config file found wins. Legacy `opencode-notify.config.json` is accepted as a fallback.
+- `~/.config/opencode/notify-native.config.json`
+
+Optional project overrides:
+
+- `<worktree>/notify-native.config.json`
+- `<worktree>/.opencode/notify-native.config.json`
+
+Compatibility names still supported:
+
+- `opencode-native-notify.config.json`
+- `opencode-notify.config.json`
+
+Resolution order (low -> high):
+
+1. Global config (`~/.config/opencode/...`)
+2. Project root config
+3. `.opencode` project config
+4. `OPENCODE_NOTIFY_NATIVE_CONFIG` (if set)
+
+Values are layered; later sources override earlier ones.
 
 ```json
 {
@@ -69,11 +92,22 @@ Config resolution: the first config file found wins. Legacy `opencode-notify.con
 }
 ```
 
+## Data files
+
+- This plugin does not persist state files.
+- No queue/status bridge is used.
+
 ## Platform notes
 
 - Windows: notifications depend on system notification settings and Focus Assist.
-- macOS: tries `terminal-notifier` first, falls back to `osascript`.
+- macOS: tries `terminal-notifier` first (supports click-to-focus), falls back to `osascript`.
 - Linux: requires `notify-send` (for example `libnotify-bin` on Debian/Ubuntu). `notify-send` has no standard sound support; this plugin can only best-effort play sounds when `canberra-gtk-play` is available.
+
+## Click behavior
+
+- If focusing an existing terminal/editor instance is possible, the notification click will focus it.
+- Otherwise, clicks are treated as no-ops.
+- This plugin must not open a new app window on click.
 
 ## Build and test
 

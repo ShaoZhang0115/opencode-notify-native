@@ -15,9 +15,28 @@ Add to `opencode.json`:
 
 ## Optional config
 
-Create `.opencode/opencode-native-notify.config.json`:
+Recommended global config:
 
-Config resolution: the first config file found wins. Legacy `opencode-notify.config.json` is accepted as a fallback.
+- `~/.config/opencode/notify-native.config.json`
+
+Optional project overrides:
+
+- `<worktree>/notify-native.config.json`
+- `<worktree>/.opencode/notify-native.config.json`
+
+Compatibility names still supported:
+
+- `opencode-native-notify.config.json`
+- `opencode-notify.config.json`
+
+Resolution order (low -> high):
+
+1. Global config (`~/.config/opencode/...`)
+2. Project root config
+3. `.opencode` project config
+4. `OPENCODE_NOTIFY_NATIVE_CONFIG` (if set)
+
+Values are layered; later sources override earlier ones.
 
 ```json
 {
@@ -41,6 +60,10 @@ Config resolution: the first config file found wins. Legacy `opencode-notify.con
 }
 ```
 
+## Data files
+
+- This plugin does not write persistent data files.
+
 ## Event mapping
 
 - `complete`: `session.status` idle and legacy `session.idle`
@@ -54,6 +77,12 @@ Note: `permission.asked` and `question.asked` are runtime events and may not be 
 - Windows: PowerShell toast APIs (built in)
 - macOS: `terminal-notifier` recommended, fallback `osascript`
 - Linux: `notify-send` (no standard sound support; best-effort sound via `canberra-gtk-play` when available)
+
+## Click behavior
+
+- macOS (with `terminal-notifier`): clicking tries to focus an existing terminal/editor instance (best-effort). If none are running, it's a no-op.
+- Windows/Linux: click-to-jump is not supported in this plugin; clicks are treated as no-ops.
+- This plugin must not open a new app window on click.
 
 ## Sound values
 

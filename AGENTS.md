@@ -41,11 +41,18 @@ Design rules for this repo:
 
 Config file path:
 
-- `.opencode/opencode-native-notify.config.json`
+- Global default: `~/.config/opencode/notify-native.config.json`
+- Project overrides:
+  - `<worktree>/notify-native.config.json`
+  - `<worktree>/.opencode/notify-native.config.json`
+- Env override: `OPENCODE_NOTIFY_NATIVE_CONFIG=/absolute/path/to/config.json`
 
-Backward compatibility: legacy `opencode-notify.config.json` is still accepted.
+Backward compatibility names still accepted:
 
-Resolution: the first config file found wins.
+- `opencode-native-notify.config.json`
+- `opencode-notify.config.json`
+
+Resolution: layered merge (low -> high): global -> project root -> `.opencode` -> env override.
 
 Supported fields:
 
@@ -64,7 +71,7 @@ Supported fields:
 - Redact token-like substrings in outgoing notification text.
 - Clamp message length.
 - Use short directory rendering by default.
-- Do not persist notification payloads to queue files.
+- Do not persist notification payloads to local data files.
 
 ## 6) Build, test, release
 

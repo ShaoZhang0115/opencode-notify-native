@@ -38,11 +38,19 @@ Evidence source: local OpenCode source in `opencode/` and official docs.
 
 ## Configuration contract
 
-Config file: `.opencode/opencode-native-notify.config.json`
+Primary config path: `~/.config/opencode/notify-native.config.json`
 
-Backward compatibility: legacy `opencode-notify.config.json` is also accepted.
+Optional project override paths:
 
-Resolution: the first config file found in the candidate list wins (no stacking/merging across multiple files).
+- `<worktree>/notify-native.config.json`
+- `<worktree>/.opencode/notify-native.config.json`
+
+Backward compatibility names still accepted:
+
+- `opencode-native-notify.config.json`
+- `opencode-notify.config.json`
+
+Resolution: layered merge (low -> high): global -> project root -> `.opencode` -> `OPENCODE_NOTIFY_NATIVE_CONFIG`.
 
 - `enabled`
 - `events.complete|error|attention`
