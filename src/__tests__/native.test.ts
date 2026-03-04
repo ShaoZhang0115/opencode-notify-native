@@ -28,13 +28,15 @@ async function writeWrappedCommand(tmp: string, name: string, script: string) {
   const cmdWrapper = `@echo off\r\n"${nodePathForCmd}" "%~dpn0.js" "%~n0" %*\r\n`;
 
   await writeFile(path.join(tmp, `${name}.js`), script, "utf8");
-  const shellPath = path.join(tmp, name);
-  await writeFile(shellPath, shellWrapper, "utf8");
   await writeFile(path.join(tmp, `${name}.cmd`), cmdWrapper, "utf8");
-  try {
-    await chmod(shellPath, 0o755);
-  } catch {
-    // Best-effort; Windows does not rely on POSIX executable bits.
+  if (process.platform !== "win32") {
+    const shellPath = path.join(tmp, name);
+    await writeFile(shellPath, shellWrapper, "utf8");
+    try {
+      await chmod(shellPath, 0o755);
+    } catch {
+      // Best-effort; Windows does not rely on POSIX executable bits.
+    }
   }
 }
 
@@ -199,11 +201,16 @@ async function setupMacEnv(
   },
 ): Promise<() => void> {
   const prevPath = process.env.PATH;
+  const prevPathAlias = process.env.Path;
   const prevLog = process.env.OC_TEST_NOTIFY_LOG;
   const prevOsa = process.env.OC_TEST_OSASCRIPT_OK;
   const prevPlatform = process.platform;
+  const mergedPath = [binDir, prevPath || prevPathAlias || ""]
+    .filter(Boolean)
+    .join(path.delimiter);
 
-  process.env.PATH = binDir;
+  process.env.PATH = mergedPath;
+  process.env.Path = mergedPath;
   process.env.OC_TEST_NOTIFY_LOG = logFile;
   process.env.OC_TEST_OSASCRIPT_OK = options.osascriptOk;
   Object.defineProperty(process, "platform", { value: "darwin" });
@@ -212,6 +219,8 @@ async function setupMacEnv(
     Object.defineProperty(process, "platform", { value: prevPlatform });
     if (prevPath === undefined) delete process.env.PATH;
     else process.env.PATH = prevPath;
+    if (prevPathAlias === undefined) delete process.env.Path;
+    else process.env.Path = prevPathAlias;
     if (prevLog === undefined) delete process.env.OC_TEST_NOTIFY_LOG;
     else process.env.OC_TEST_NOTIFY_LOG = prevLog;
     if (prevOsa === undefined) delete process.env.OC_TEST_OSASCRIPT_OK;
@@ -228,12 +237,17 @@ async function setupLinuxEnv(
   },
 ): Promise<() => void> {
   const prevPath = process.env.PATH;
+  const prevPathAlias = process.env.Path;
   const prevLog = process.env.OC_TEST_NOTIFY_LOG;
   const prevNotifySendOk = process.env.OC_TEST_NOTIFY_SEND_OK;
   const prevCanberra = process.env.OC_TEST_CANBERRA_OK;
   const prevPlatform = process.platform;
+  const mergedPath = [binDir, prevPath || prevPathAlias || ""]
+    .filter(Boolean)
+    .join(path.delimiter);
 
-  process.env.PATH = binDir;
+  process.env.PATH = mergedPath;
+  process.env.Path = mergedPath;
   process.env.OC_TEST_NOTIFY_LOG = logFile;
   process.env.OC_TEST_NOTIFY_SEND_OK = options.notifySendOk;
   process.env.OC_TEST_CANBERRA_OK = options.canberraOk;
@@ -243,6 +257,8 @@ async function setupLinuxEnv(
     Object.defineProperty(process, "platform", { value: prevPlatform });
     if (prevPath === undefined) delete process.env.PATH;
     else process.env.PATH = prevPath;
+    if (prevPathAlias === undefined) delete process.env.Path;
+    else process.env.Path = prevPathAlias;
     if (prevLog === undefined) delete process.env.OC_TEST_NOTIFY_LOG;
     else process.env.OC_TEST_NOTIFY_LOG = prevLog;
     if (prevNotifySendOk === undefined)
@@ -263,13 +279,18 @@ async function setupWindowsEnv(
   },
 ): Promise<() => void> {
   const prevPath = process.env.PATH;
+  const prevPathAlias = process.env.Path;
   const prevLog = process.env.OC_TEST_NOTIFY_LOG;
   const prevPwsh = process.env.OC_TEST_PWSH_OK;
   const prevPowerShell = process.env.OC_TEST_POWERSHELL_OK;
   const prevSender = process.env.OPENCODE_NOTIFY_NATIVE_WINDOWS_SENDER;
   const prevPlatform = process.platform;
+  const mergedPath = [binDir, prevPath || prevPathAlias || ""]
+    .filter(Boolean)
+    .join(path.delimiter);
 
-  process.env.PATH = binDir;
+  process.env.PATH = mergedPath;
+  process.env.Path = mergedPath;
   process.env.OC_TEST_NOTIFY_LOG = logFile;
   process.env.OC_TEST_PWSH_OK = options.pwshOk;
   process.env.OC_TEST_POWERSHELL_OK = options.powershellOk;
@@ -282,6 +303,8 @@ async function setupWindowsEnv(
     Object.defineProperty(process, "platform", { value: prevPlatform });
     if (prevPath === undefined) delete process.env.PATH;
     else process.env.PATH = prevPath;
+    if (prevPathAlias === undefined) delete process.env.Path;
+    else process.env.Path = prevPathAlias;
     if (prevLog === undefined) delete process.env.OC_TEST_NOTIFY_LOG;
     else process.env.OC_TEST_NOTIFY_LOG = prevLog;
     if (prevPwsh === undefined) delete process.env.OC_TEST_PWSH_OK;
