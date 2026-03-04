@@ -21,7 +21,7 @@
     "build": "npm run clean && tsc -p tsconfig.build.json",
     "build:test": "tsc -p tsconfig.test.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build:test && node --test dist-test/__tests__/*.test.js",
+    "test": "npm run build:test && node scripts/run-tests.mjs",
     "prepack": "npm run build",
     "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
