@@ -1,0 +1,13 @@
+title = "opencode-notify-native gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Intentional token-like fixtures in sanitization tests"
+paths = ['''src/__tests__/text\.test\.ts''']
+regexes = [
+  '''github_pat_1234567890_ABCDEFGHIJ''',
+  '''Bearer abcdefghijklmnopqrstuvwxyz''',
+  '''Bearer token_abcdefghijklmnopqrstuvwxyz''',
+]
