@@ -9,6 +9,11 @@ import { debugEnabled, debugWarn } from "./debug.js";
 import { fnv1a32 } from "./hash.js";
 import type { NotifyEventType, NotifySound } from "./types.js";
 
+// Captured at module-load time, before any test-level overrides of
+// process.platform.  Used exclusively to decide whether spawn() needs
+// cmd.exe to resolve PATHEXT (.cmd / .bat) wrappers.
+const hostPlatform: NodeJS.Platform = process.platform;
+
 function stripControlChars(input: string): string {
   return input.replace(/[\u0000-\u001F\u007F]/g, "").trim();
 }
@@ -65,18 +70,18 @@ function windowsNotifierAppIds(): string[] {
   ];
 }
 
-async function commandInPath(
+async function resolveCommandInPath(
   command: string,
   env: NodeJS.ProcessEnv,
-): Promise<boolean> {
+): Promise<string | null> {
   const pathValue = env.PATH || env.Path || "";
-  if (!pathValue) return false;
+  if (!pathValue) return null;
 
   const dirs = pathValue
     .split(path.delimiter)
     .map((entry) => entry.trim())
     .filter(Boolean);
-  if (!dirs.length) return false;
+  if (!dirs.length) return null;
 
   const names = [command];
   if (process.platform === "win32" && !path.extname(command)) {
@@ -91,20 +96,22 @@ async function commandInPath(
     }
   }
 
-  for (const dir of dirs) {
+  for (const rawDir of dirs) {
+    // Some Windows setups include quoted PATH entries (rare but valid).
+    const dir = rawDir.replace(/^"|"$/g, "");
     for (const name of names) {
       try {
         await access(
           path.join(dir, name),
           process.platform === "win32" ? constants.F_OK : constants.X_OK,
         );
-        return true;
+        return path.join(dir, name);
       } catch {
         // Continue searching PATH.
       }
     }
   }
-  return false;
+  return null;
 }
 
 type RunOptions = {
@@ -128,9 +135,24 @@ function runDetailed(
     let child: ReturnType<typeof spawn>;
     let stderrOutput = "";
     try {
-      child = spawn(command, args, {
+      // On native Windows, .cmd/.bat wrappers (common for shims, test fakes,
+      // and package-manager-installed binaries) cannot be launched by
+      // CreateProcessW.  Spawning through cmd.exe lets PATHEXT resolution
+      // work correctly.  We gate on the *host* platform (captured at module
+      // load) so that cross-platform test overrides of process.platform do
+      // not accidentally invoke cmd.exe on Unix.
+      //
+      // When the resolved command path contains spaces (e.g.
+      // "C:\Program Files\..."), we pre-quote it so cmd.exe treats it as a
+      // single token after /s strips the outermost quotes.
+      const spawnViaShell = hostPlatform === "win32";
+      const spawnCommand =
+        spawnViaShell && command.includes(" ") ? `"${command}"` : command;
+
+      child = spawn(spawnCommand, args, {
         stdio: ["ignore", "ignore", captureStderr ? "pipe" : "ignore"],
         windowsHide: true,
+        shell: spawnViaShell || undefined,
         env: options.env ? { ...process.env, ...options.env } : process.env,
       });
     } catch (error) {
@@ -377,36 +399,50 @@ async function notifyWindows(
     "-NonInteractive",
     "-ExecutionPolicy",
     "Bypass",
-    "-Command",
-    script,
+    // -EncodedCommand accepts a base64-encoded UTF-16LE string.  This
+    // avoids all cmd.exe metacharacter issues (the script contains "> $null",
+    // parentheses, pipes, etc.) that would break with shell: true + -Command.
+    "-EncodedCommand",
+    Buffer.from(script, "utf16le").toString("base64"),
   ];
-  let shells: Array<"pwsh" | "powershell">;
+  type ShellKind = "pwsh" | "powershell";
+  type ShellCandidate = { kind: ShellKind; command: string };
+
+  const resolveShell = async (kind: ShellKind): Promise<ShellCandidate> => {
+    const resolved = await resolveCommandInPath(kind, process.env);
+    // On Windows, "powershell" is often found via system directories before
+    // PATH. When we want a PATH override (tests, custom shims), spawning the
+    // resolved full path is the only deterministic option.
+    return { kind, command: resolved || kind };
+  };
+
+  let shells: ShellCandidate[];
   if (state.windowsPreferredShell) {
-    shells = [
-      state.windowsPreferredShell,
-      state.windowsPreferredShell === "pwsh" ? "powershell" : "pwsh",
-    ];
+    const first = state.windowsPreferredShell;
+    const second: ShellKind = first === "pwsh" ? "powershell" : "pwsh";
+    shells = await Promise.all([resolveShell(first), resolveShell(second)]);
   } else {
-    const [hasPwsh, hasPowershell] = await Promise.all([
-      commandInPath("pwsh", process.env),
-      commandInPath("powershell", process.env),
+    const [pwsh, powershell] = await Promise.all([
+      resolveShell("pwsh"),
+      resolveShell("powershell"),
     ]);
-    if (hasPwsh && hasPowershell) {
-      shells = ["pwsh", "powershell"];
-    } else if (hasPwsh) {
-      shells = ["pwsh"];
-    } else if (hasPowershell) {
-      shells = ["powershell"];
-    } else {
-      shells = ["pwsh", "powershell"];
-    }
+
+    const hasPwsh = pwsh.command !== "pwsh";
+    const hasPowershell = powershell.command !== "powershell";
+
+    // If PATH lookups fail, still attempt both: one may be reachable via
+    // system search paths or app execution aliases.
+    if (hasPwsh && hasPowershell) shells = [pwsh, powershell];
+    else if (hasPwsh) shells = [pwsh];
+    else if (hasPowershell) shells = [powershell];
+    else shells = [pwsh, powershell];
   }
 
   let ok = false;
   for (const shell of shells) {
-    ok = await run(shell, args, { timeoutMs: 8_000 });
+    ok = await run(shell.command, args, { timeoutMs: 8_000 });
     if (ok) {
-      state.windowsPreferredShell = shell;
+      state.windowsPreferredShell = shell.kind;
       break;
     }
   }

@@ -381,9 +381,12 @@ test(
       assert.equal(log[0].cmd, "pwsh");
       assert.equal(log[1].cmd, "powershell");
 
-      const commandIdx = log[1].args.indexOf("-Command");
+      const commandIdx = log[1].args.indexOf("-EncodedCommand");
       assert.ok(commandIdx >= 0);
-      const script = String(log[1].args[commandIdx + 1] || "");
+      const script = Buffer.from(
+        String(log[1].args[commandIdx + 1] || ""),
+        "base64",
+      ).toString("utf16le");
       const payloadMatch = script.match(/FromBase64String\('([^']+)'\)/);
       assert.ok(payloadMatch);
       const toastXml = Buffer.from(payloadMatch[1], "base64").toString("utf8");
@@ -451,6 +454,7 @@ test(
     await Promise.allSettled([
       unlink(path.join(binDir, "pwsh")),
       unlink(path.join(binDir, "pwsh.cmd")),
+      unlink(path.join(binDir, "pwsh.js")),
     ]);
     await writeFile(logFile, "", "utf8");
     const restore = await setupWindowsEnv(binDir, logFile, {
@@ -510,9 +514,12 @@ test(
 
       const log = await readLog(logFile);
       assert.equal(log.length, 1);
-      const commandIdx = log[0].args.indexOf("-Command");
+      const commandIdx = log[0].args.indexOf("-EncodedCommand");
       assert.ok(commandIdx >= 0);
-      const script = String(log[0].args[commandIdx + 1] || "");
+      const script = Buffer.from(
+        String(log[0].args[commandIdx + 1] || ""),
+        "base64",
+      ).toString("utf16le");
       const terminalIdIdx = script.indexOf(
         "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
       );
